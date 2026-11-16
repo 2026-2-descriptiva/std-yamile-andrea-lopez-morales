@@ -1,3 +1,6 @@
+from pathlib import Path
+import pandas as pd
+
 def pregunta_09():
     """
     Retorne la tabla `data/tbl0.tsv` completa con una columna adicional
@@ -12,5 +15,17 @@ def pregunta_09():
         2    2  B   5  1998-05-02  1998
         ...
     """
+    
+    # Ruta al archivo de datos
+    DATA = Path(__file__).resolve().parents[1] / "data"
 
-    raise NotImplementedError
+    # Lectura del archivo tbl0.tsv
+    df = pd.read_csv(DATA / "tbl0.tsv", sep="\t")
+
+    # Agregar la columna 'year' al DataFrame, que contiene el año de la fecha en la columna 'c3'
+    df['year'] = df['c3'].str.split('-').str[0]
+
+    #print(df)
+    return df
+
+pregunta_09()

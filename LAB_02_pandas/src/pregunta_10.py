@@ -1,3 +1,6 @@
+from pathlib import Path
+import pandas as pd
+
 def pregunta_10():
     """
     Usando `data/tbl0.tsv`, construya para cada categoría de la columna `c1`
@@ -14,5 +17,22 @@ def pregunta_10():
         C           0:5:6:7:9
         ...
     """
+    # Ruta al archivo de datos
+    DATA = Path(__file__).resolve().parents[1] / "data"
 
-    raise NotImplementedError
+    # Lectura del archivo tbl0.tsv
+    df = pd.read_csv(DATA / "tbl0.tsv", sep="\t")
+
+    # Agrupación por la columna 'c1' y concatenación de los valores de la columna 'c2' ordenados y separados por ':'
+    concatenacion_categorias = df.groupby('c1')['c2'].apply(lambda x: ':'.join(map(str, sorted(x)))).reset_index()
+
+    # Renombrar la columna resultante a 'c2'
+    concatenacion_categorias.columns = ['c1', 'c2']
+
+    # Establecer 'c1' como índice y ordenar alfabéticamente
+    concatenacion_categorias.set_index('c1', inplace=True)
+    concatenacion_categorias.sort_index(inplace=True)
+
+    return concatenacion_categorias
+
+pregunta_10()

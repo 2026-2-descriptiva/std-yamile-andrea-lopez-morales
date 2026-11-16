@@ -1,3 +1,5 @@
+import pandas as pd
+
 def pregunta_12():
     """
     En `data/tbl2.tsv`, cada valor de la columna `c0` aparece en varias
@@ -15,4 +17,17 @@ def pregunta_12():
         ...
     """
 
-    raise NotImplementedError
+
+    # Lectura del archivo tbl2.tsv
+    df = pd.read_csv("data/tbl2.tsv", sep="\t")
+
+    # Agrupación por la columna 'c0' y construcción de los textos 'c5a:c5b' ordenados alfabéticamente y separados por comas
+    df["c5"] = df["c5a"] + ":" + df["c5b"].astype(str)
+
+    # Agrupación por la columna 'c0' y concatenación de los textos 'c5' ordenados alfabéticamente y separados por comas
+    agrupado = df.groupby("c0")["c5"].apply(lambda x: ",".join(sorted(x)))
+
+    resultado = agrupado.reset_index()
+    return resultado
+
+pregunta_12()

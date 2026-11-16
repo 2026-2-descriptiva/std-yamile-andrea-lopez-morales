@@ -1,3 +1,7 @@
+from turtle import pd
+from pathlib import Path
+import pandas as pd
+
 def pregunta_06():
     """
     Usando `data/tbl1.tsv`, obtenga los valores distintos de la columna `c4`,
@@ -9,4 +13,11 @@ def pregunta_06():
         ["A", "B", "C", "D", "E", "F", "G"]
     """
 
-    raise NotImplementedError
+    DATA = Path(__file__).resolve().parents[1] / "data"
+
+    df = pd.read_csv(DATA / "tbl1.tsv", sep="\t")
+    valores_distintos = sorted(df['c4'].str.upper().unique())
+
+    return valores_distintos
+
+pregunta_06()
