@@ -1,3 +1,5 @@
+import pandas as pd
+
 def pregunta_06():
     """
     La quinta columna (`metrics`) contiene pares `clave:valor` separados por
@@ -12,5 +14,20 @@ def pregunta_06():
 
         [("aaa", 1, 9), ("bbb", 1, 9), ...]
     """
+    
+    # Lectura del archivo CSV comprimido con separador de tabulación y sin encabezado
+    df = pd.read_csv("data/data.csv.gz", sep="\t", header=None)
 
-    raise NotImplementedError
+    # Separación de los pares clave:valor en la quinta columna y creación de un DataFrame
+    metrics_df = df[4].str.split(',', expand=True).stack().str.split(':', expand=True)
+    metrics_df.columns = ['clave', 'valor']
+    metrics_df['valor'] = metrics_df['valor'].astype(int)
+
+    # Agrupación por clave y cálculo del valor mínimo y máximo
+    min_max_metrics = metrics_df.groupby('clave')['valor'].agg(['min', 'max']).sort_index()
+
+    resultado = [(clave, fila['min'], fila['max']) for clave, fila in min_max_metrics.iterrows()]
+
+    #print(resultado)
+    return resultado
+pregunta_06()
