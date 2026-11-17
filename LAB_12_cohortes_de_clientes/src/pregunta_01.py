@@ -1,7 +1,7 @@
-import matplotlib.pyplot as plt
-matplotlib.use("Agg")
 import pandas as pd
-import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from pathlib import Path
 
 
 def build_cohort_analysis() -> pd.DataFrame:
@@ -47,4 +47,82 @@ def build_cohort_analysis() -> pd.DataFrame:
         ...
     """
 
-    raise NotImplementedError
+    # Definición de rutas de archivos
+    base_dir = Path(__file__).resolve().parents[1]
+    data_path = base_dir / "data" / "sales.csv.gz"
+    submission_dir = base_dir / "submission"
+    
+    # Creación del directorio de salida si no existe
+    submission_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Lectura del archivo CSV comprimido
+    df = pd.read_csv(data_path)
+    
+    # conversión de la columna 'OrderDate' a tipo datetime para poder extraer el mes
+    df['OrderDate'] = pd.to_datetime(df['OrderDate'])
+    
+    # Creación de la columna 'order_month' que contiene el mes de la orden en formato Period (AAAA-MM)
+    df['order_month'] = df['OrderDate'].dt.to_period('M')
+    
+    # Identificación del mes de la primera compra para cada cliente
+    cohortes_clientes = df.groupby('CustomerID')['order_month'].min().reset_index()
+    cohortes_clientes.rename(columns={'order_month': 'cohort_month'}, inplace=True)
+    
+    # Concatenación de la información de cohorte con el DataFrame original
+    df = df.merge(cohortes_clientes, on='CustomerID')
+    
+    # Cálculo del índice de período (meses transcurridos desde la cohorte)
+    df['period_index'] = (df['order_month'] - df['cohort_month']).apply(lambda x: x.n)
+    df['cohort_month'] = df['cohort_month'].astype(str)
+    
+    # Agrupación por cohorte y período para contar clientes activos
+    cohort_data = df.groupby(['cohort_month', 'period_index'])['CustomerID'].nunique().reset_index()
+    cohort_data.rename(columns={'CustomerID': 'active_customers'}, inplace=True)
+    
+    # Cálculo del tamaño de cada cohorte (clientes activos en el período 0)
+    cohort_sizes = cohort_data[cohort_data['period_index'] == 0].set_index('cohort_month')['active_customers']
+    
+    # Adición de la columna 'cohort_size' al DataFrame principal usando el tamaño de cohorte correspondiente
+    cohort_data['cohort_size'] = cohort_data['cohort_month'].map(cohort_sizes)
+    
+    # Cálculo de Tasa de Retención
+    cohort_data['retention_rate'] = cohort_data['active_customers'] / cohort_data['cohort_size']
+    
+    # Ordenamiento de los datos por cohorte y período para la exportación
+    cohort_data = cohort_data.sort_values(by=['cohort_month', 'period_index'])
+    
+    # Exportación del CSV
+    csv_path = submission_dir / "cohort_retention.csv"
+    cohort_data.to_csv(csv_path, index=False)
+    
+    # Creación del mapa de calor de retención
+    cohort_pivot = cohort_data.pivot(index='cohort_month', columns='period_index', values='retention_rate')
+    
+    # Configuración del tamaño de la figura y título
+    plt.figure(figsize=(12, 8))
+    plt.title("Cohort Retention Rate")
+    
+    # Creación del mapa de calor con anotaciones y formato de porcentaje
+    sns.heatmap(
+        cohort_pivot, 
+        annot=True, 
+        fmt='.0%', 
+        cmap='YlGnBu', 
+        vmin=0.0, 
+        vmax=1.0
+    )
+    
+    plt.ylabel('Cohort Month')
+    plt.xlabel('Period Index')
+    
+    # Ajuste del diseño para evitar superposición de elementos
+    plt.tight_layout()
+    
+    # Exportación del mapa de calor como imagen PNG
+    png_path = submission_dir / "cohort_retention_heatmap.png"
+    plt.savefig(png_path)
+    plt.close() 
+    
+    return cohort_data
+
+    
