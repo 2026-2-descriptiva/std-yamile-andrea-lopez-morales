@@ -1,4 +1,7 @@
+import matplotlib.pyplot as plt
+matplotlib.use("Agg")
 import pandas as pd
+import numpy as np
 
 
 def build_cohort_analysis() -> pd.DataFrame:

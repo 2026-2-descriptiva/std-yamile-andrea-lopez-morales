@@ -1,5 +1,6 @@
+from pathlib import Path
 import pandas as pd
-
+import numpy as np
 
 def pregunta_01() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
@@ -61,4 +62,95 @@ def pregunta_01() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         ...
     """
 
-    raise NotImplementedError
+    # Definición de rutas de archivos
+    base_dir = Path(__file__).resolve().parents[1]
+    data_dir = base_dir / "data"
+    submission_dir = base_dir / "submission"
+    submission_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Lectura de los archivos CSV
+    df_web = pd.read_csv(data_dir / "historical_requests_web.csv.gz")
+    df_letter = pd.read_csv(data_dir / "historical_requests_letter.csv.gz")
+
+    df_web['channel'] = 'web'
+    df_letter['channel'] = 'letter'
+    
+    df_web = df_web.drop_duplicates()
+    df_letter = df_letter.drop_duplicates()
+    
+    df = pd.concat([df_web, df_letter], ignore_index=True)
+    
+    # Conversión de fechas y cálculo de días hábiles y calendario
+    df['in_date'] = pd.to_datetime(df['in_date'])
+    df['out_date'] = pd.to_datetime(df['out_date'])
+    df['year'] = df['in_date'].dt.year
+    
+    # Cálculo de días calendario y hábiles
+    respondidas = df['out_date'].notna()
+    
+    # Días calendario
+    df.loc[respondidas, 'calendar_days'] = (df.loc[respondidas, 'out_date'] - df.loc[respondidas, 'in_date']).dt.days
+    
+    # Días hábiles (usando np.busday_count)
+    in_dates_shifted = (df.loc[respondidas, 'in_date'] + pd.Timedelta(days=1)).values.astype('datetime64[D]')
+    out_dates_shifted = (df.loc[respondidas, 'out_date'] + pd.Timedelta(days=1)).values.astype('datetime64[D]')
+    df.loc[respondidas, 'business_days'] = np.busday_count(in_dates_shifted, out_dates_shifted)
+    
+    # Cálculo de cumplimiento del plazo
+    df['on_time'] = False
+    df.loc[respondidas & (df['business_days'] <= 15), 'on_time'] = True
+    df['pending_flag'] = df['out_date'].isna()
+    
+    
+    # tabla 1: RESUMEN POR CANAL
+    channel_summary = df.groupby('channel').agg(
+        requests=('in_date', 'count'),
+        pending=('pending_flag', 'sum'),
+        on_time_count=('on_time', 'sum'),
+        median_business_days=('business_days', 'median')
+    ).reset_index()
+    
+    channel_summary['answered'] = channel_summary['requests'] - channel_summary['pending']
+    channel_summary['on_time_rate'] = channel_summary['on_time_count'] / channel_summary['requests']
+    
+    channel_summary = channel_summary.sort_values('channel')
+    columnas_ch = ['channel', 'requests', 'answered', 'pending', 'median_business_days', 'on_time_rate']
+    channel_summary = channel_summary[columnas_ch]
+    
+    
+    # tabla 2: RESUMEN POR AÑO Y CANAL
+    yearly_summary = df.groupby(['year', 'channel']).agg(
+        requests=('in_date', 'count'),
+        pending=('pending_flag', 'sum'),
+        on_time_count=('on_time', 'sum')
+    ).reset_index()
+    
+    yearly_summary['on_time_rate'] = yearly_summary['on_time_count'] / yearly_summary['requests']
+    
+    yearly_summary = yearly_summary.sort_values(['year', 'channel'])
+    columnas_yr = ['year', 'channel', 'requests', 'pending', 'on_time_rate']
+    yearly_summary = yearly_summary[columnas_yr]
+    
+    
+    # Tabla 3: RESUMEN POR DÍA DE ENTRADA
+    entry_day_summary = df.groupby('day_name').agg(
+        requests=('in_date', 'count'),
+        median_calendar_days=('calendar_days', 'median'),
+        median_business_days=('business_days', 'median')
+    ).reset_index()
+    
+    orden_dias = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    entry_day_summary['day_name'] = pd.Categorical(entry_day_summary['day_name'], categories=orden_dias, ordered=True)
+    entry_day_summary = entry_day_summary.sort_values('day_name')
+    
+    
+    # Exportación
+    channel_summary.to_csv(submission_dir / "channel_summary.csv", index=False)
+    yearly_summary.to_csv(submission_dir / "yearly_summary.csv", index=False)
+    entry_day_summary.to_csv(submission_dir / "entry_day_summary.csv", index=False)
+    
+    return channel_summary, yearly_summary, entry_day_summary
+    
+       
+pregunta_01()
+
