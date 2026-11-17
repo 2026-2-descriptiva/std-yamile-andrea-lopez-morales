@@ -1,4 +1,6 @@
+from pathlib import Path
 import pandas as pd
+import glob
 
 
 def clean_campaign_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -42,5 +44,43 @@ def clean_campaign_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         0,1,261,...,2022-05-13
         ...
     """
+    # Definición de rutas de archivos
+    root = Path(__file__).resolve().parents[1]
+    files = sorted((root / "data").glob("bank-marketing-campaing-*.csv.gz"))
+    if len(files) != 10:
+        raise FileNotFoundError("Se esperan exactamente diez archivos de campaña")
+    df = pd.concat([pd.read_csv(path, compression="gzip") for path in files], ignore_index=True)
+    df = df.sort_values("client_id").reset_index(drop=True)
 
-    raise NotImplementedError
+    # Separación de las tablas y limpieza de los datos
+    client = df[["client_id", "age", "job", "marital", "education", "credit_default", "mortgage"]].copy()
+    client["job"] = client["job"].str.replace(".", "", regex=False).str.replace("-", "_", regex=False)
+    client["education"] = client["education"].str.replace(".", "_", regex=False).replace("unknown", pd.NA)
+    client["credit_default"] = (client["credit_default"] == "yes").astype(int)
+    client["mortgage"] = (client["mortgage"] == "yes").astype(int)
+
+    # Separación de la tabla de campaña y limpieza de los datos
+    campaign = df[["client_id", "number_contacts", "contact_duration", "previous_campaign_contacts", "previous_outcome", "campaign_outcome"]].copy()
+    campaign["previous_outcome"] = (campaign["previous_outcome"] == "success").astype(int)
+    campaign["campaign_outcome"] = (campaign["campaign_outcome"] == "yes").astype(int)
+    dates = pd.to_datetime("2022-" + df["month"].astype(str) + "-" + df["day"].astype(str), format="%Y-%b-%d")
+    campaign["last_contact_date"] = dates.dt.strftime("%Y-%m-%d")
+
+    # Separación de la tabla de economía y limpieza de los datos
+    economics = df[["client_id", "cons_price_idx", "euribor_three_months"]].copy()
+    
+    # Creación del directorio de salida si no existe
+    output = root / "submission"
+    output.mkdir(exist_ok=True)
+    
+    # Guardado de las tablas en CSV sin comprimir
+    client.to_csv(output / "client.csv", index=False)
+    campaign.to_csv(output / "campaign.csv", index=False)
+    economics.to_csv(output / "economics.csv", index=False)
+    
+    return client, campaign, economics
+
+
+if __name__ == "__main__":
+    clean_campaign_data()
+

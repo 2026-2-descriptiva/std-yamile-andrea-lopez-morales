@@ -1,3 +1,9 @@
+import pandas as pd
+from pathlib import Path
+import json
+import numpy as np
+
+
 def pregunta_01():
     """
     Una aseguradora quiere publicar datos de sus afiliados para que un grupo
@@ -79,5 +85,119 @@ def pregunta_01():
           ...
         }
     """
+# Definición de rutas de archivos
+    base_dir = Path(__file__).resolve().parents[1]
+    data_path = base_dir / "data" / "insurance.csv.gz"
+    submission_dir = base_dir / "submission"
+    submission_dir.mkdir(parents=True, exist_ok=True)
+    
+    report_path = submission_dir / "privacy_report.json"
+    published_path = submission_dir / "insurance_published.csv"
+    
+    # Lectura del archivo CSV comprimido
+    df = pd.read_csv(data_path)
+    k_minimo = 5
+    
+    # Creación de las columnas de grupos para los cuasi-identificadores, Edad
+    df['age_group'] = pd.cut(
+        df['age'], 
+        bins=[18, 30, 40, 50, 65], 
+        labels=['18-29', '30-39', '40-49', '50-64'], 
+        right=False
+    ).astype(str)
+    
+    # creación de las columnas de grupos para los cuasi-identificadores, IMC
+    df['bmi_group'] = pd.cut(
+        df['bmi'], 
+        bins=[0, 18.5, 25, 30, float('inf')], 
+        labels=['bajo peso', 'normal', 'sobrepeso', 'obesidad'], 
+        right=False
+    ).astype(str)
+    
+    # creación de las columnas de grupos para los cuasi-identificadores, Número de hijos
+    df['children_group'] = pd.cut(
+        df['children'], 
+        bins=[0, 1, 3, float('inf')], 
+        labels=['0', '1-2', '3+'], 
+        right=False
+    ).astype(str)
 
-    raise NotImplementedError
+    # Cálculo de k-anonimato y registros únicos con los cuasi-identificadores originales
+    qi_originales = ['age', 'sex', 'bmi', 'children', 'region']
+    conteo_original = df.groupby(qi_originales).size()
+    original_k = int(conteo_original.min())
+    original_unique_records = int((conteo_original == 1).sum())
+
+    # Creación de esquemas de generalización
+    esquemas = {
+        'with_children': ['age_group', 'sex', 'bmi_group', 'children_group', 'region'],
+        'without_children': ['age_group', 'sex', 'bmi_group', 'region']
+    }
+    
+    reporte_esquemas = {}
+    mejores_datos_publicados = None
+    mejor_esquema_nombre = None
+    max_registros_publicados = -1
+
+    # Evaluación de cada esquema
+    for nombre_esquema, qi_esquema in esquemas.items():
+        tamanos_clase = df.groupby(qi_esquema).size().reset_index(name='class_size')
+        
+        # Uninión de los tamaños de clase con el DataFrame original para evaluar k-anonimato
+        df_eval = df.merge(tamanos_clase, on=qi_esquema, how='left')
+        
+        # Filtrado de registros que cumplen con k-anonimato
+        df_publicado = df_eval[df_eval['class_size'] >= k_minimo].copy()
+        
+        # Cálculo de la diversidad de fumadores en las clases publicadas
+        diversidad_clases = df_publicado.groupby(qi_esquema)['smoker'].nunique().reset_index(name='smoker_diversity')
+        clases_sin_diversidad = diversidad_clases[diversidad_clases['smoker_diversity'] == 1]
+        
+        # Filtrado de registros que pertenecen a clases sin diversidad de fumadores
+        df_sin_div = df_publicado.merge(clases_sin_diversidad, on=qi_esquema, how='inner')
+        
+        reporte_esquemas[nombre_esquema] = {
+            "quasi_identifiers": qi_esquema,
+            "equivalence_classes": int(len(tamanos_clase[tamanos_clase['class_size'] > 0])),
+            "k_before_suppression": int(tamanos_clase[tamanos_clase['class_size'] > 0]['class_size'].min()),
+            "suppressed_records": int(len(df) - len(df_publicado)),
+            "published_records": int(len(df_publicado)),
+            "published_classes": int(len(df_publicado.groupby(qi_esquema))),
+            "classes_without_smoker_diversity": int(len(clases_sin_diversidad)),
+            "records_without_smoker_diversity": int(len(df_sin_div))
+        }
+        
+        # Selección del esquema con más registros publicados
+        if reporte_esquemas[nombre_esquema]["published_records"] > max_registros_publicados:
+            max_registros_publicados = reporte_esquemas[nombre_esquema]["published_records"]
+            mejor_esquema_nombre = nombre_esquema
+            mejores_datos_publicados = df_publicado
+
+    # Cálculo de estadísticas adicionales
+    mean_charges_original = float(df['charges'].mean())
+    mean_charges_published = float(mejores_datos_publicados['charges'].mean())
+    
+    smoker_rate_original = float((df['smoker'] == 'yes').mean())
+    smoker_rate_published = float((mejores_datos_publicados['smoker'] == 'yes').mean())
+
+    report = {
+        "original_k": original_k,
+        "original_unique_records": original_unique_records,
+        "schemes": reporte_esquemas,
+        "selected_scheme": mejor_esquema_nombre,
+        "mean_charges_original": mean_charges_original,
+        "mean_charges_published": mean_charges_published,
+        "smoker_rate_original": smoker_rate_original,
+        "smoker_rate_published": smoker_rate_published
+    }
+
+    with open(report_path, 'w', encoding='utf-8') as f:
+        json.dump(report, f, indent=4)
+        
+    columnas_finales = esquemas[mejor_esquema_nombre] + ['smoker', 'charges']
+    mejores_datos_publicados[columnas_finales].to_csv(published_path, index=False)
+
+    return report
+
+
+pregunta_01()
