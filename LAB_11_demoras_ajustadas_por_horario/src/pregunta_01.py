@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pandas as pd
 
 
@@ -57,5 +59,43 @@ def pregunta_01() -> tuple[pd.DataFrame, pd.DataFrame]:
         EV,819223,...,1,1
         ...
     """
+    root = Path(__file__).resolve().parents[1]
+    df = pd.read_csv(root / 'data' / 'flights_by_carrier_day_hour.csv.gz')
+    operated = 'operated_flights'
+    delayed = 'delayed_departure_15_flights'
+    hour = 'scheduled_departure_hour'
+    airline = 'reporting_airline'
 
-    raise NotImplementedError
+    hourly = (df.groupby(hour, as_index=False)[[operated, delayed]]
+                .sum().sort_values(hour).reset_index(drop=True))
+    hourly['delay_rate'] = hourly[delayed] / hourly[operated]
+
+    carrier_hours = (df.groupby([airline, hour], as_index=False)[[operated, delayed]]
+                       .sum().merge(hourly[[hour, 'delay_rate']], on=hour, how='left', validate='many_to_one'))
+    carrier_hours['expected_delayed_flights'] = carrier_hours[operated] * carrier_hours['delay_rate']
+    carrier = (carrier_hours.groupby(airline, as_index=False)[[operated, delayed, 'expected_delayed_flights']]
+               .sum())
+    carrier = carrier.loc[carrier[operated] >= 100_000].copy()
+    carrier['delay_rate'] = carrier[delayed] / carrier[operated]
+    carrier['observed_to_expected_ratio'] = carrier[delayed] / carrier['expected_delayed_flights']
+    carrier['crude_rank'] = carrier['delay_rate'].rank(ascending=False, method='first').astype(int)
+    carrier['adjusted_rank'] = carrier['observed_to_expected_ratio'].rank(ascending=False, method='first').astype(int)
+    carrier = carrier.sort_values('adjusted_rank').reset_index(drop=True)
+    carrier = carrier[[airline, operated, delayed, 'delay_rate', 'expected_delayed_flights',
+                       'observed_to_expected_ratio', 'crude_rank', 'adjusted_rank']]
+
+    output = root / 'submission'
+    output.mkdir(parents=True, exist_ok=True)
+    hourly.to_csv(output / 'hourly_delay_rates.csv', index=False)
+    carrier.to_csv(output / 'carrier_adjusted_delays.csv', index=False)
+    return hourly, carrier
+
+
+if __name__ == '__main__':
+    hourly, carriers = pregunta_01()
+    print('Tasas por hora:', len(hourly))
+    print('Aerolíneas:', len(carriers))
+    print(carriers.to_string(index=False))
+
+
+

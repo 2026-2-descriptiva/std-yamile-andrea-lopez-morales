@@ -1,5 +1,5 @@
 import pandas as pd
-
+from pathlib import Path
 
 def pregunta_01() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
@@ -49,5 +49,67 @@ def pregunta_01() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         0%,166,170539.05,29472.3789,0.1728,0.488,...
         ...
     """
+    base = Path(__file__).resolve().parents[1]
+    data = pd.read_csv(base / 'data' / 'superstore_orders.csv.gz', sep=';', decimal=',')
+    data['is_loss'] = data['Profit'] < 0
+    data['loss_amount'] = data['Profit'].where(data['is_loss'], 0).abs()
 
-    raise NotImplementedError
+    lines = len(data)
+    sales = data['Sales'].sum()
+    profit = data['Profit'].sum()
+    loss_lines = int(data['is_loss'].sum())
+    summary = pd.DataFrame([{
+        'lines': lines,
+        'orders': data['Order ID'].nunique(),
+        'sales': sales,
+        'profit': profit,
+        'profit_margin': profit / sales,
+        'loss_lines': loss_lines,
+        'loss_line_rate': loss_lines / lines,
+        'lost_profit': data['loss_amount'].sum(),
+    }])
+
+    # Etiquetas ordenadas según los límites definidos en el enunciado.
+    bands = ['0%', '1%-5%', '6%-10%', 'más de 10%']
+    data['discount_band'] = pd.cut(
+        data['Discount'], bins=[-float('inf'), 0, 0.05, 0.10, float('inf')],
+        labels=bands, include_lowest=True
+    )
+    discounts = (data.groupby('discount_band', observed=False)
+                 .agg(lines=('Profit', 'size'), sales=('Sales', 'sum'),
+                      profit=('Profit', 'sum'), loss_lines=('is_loss', 'sum'),
+                      lost_profit=('loss_amount', 'sum'))
+                 .reindex(bands).reset_index())
+    discounts['profit_margin'] = discounts['profit'] / discounts['sales']
+    discounts['loss_line_rate'] = discounts['loss_lines'] / discounts['lines']
+    discounts = discounts[['discount_band', 'lines', 'sales', 'profit',
+                           'profit_margin', 'loss_line_rate', 'lost_profit']]
+
+    segments = (data.groupby(['Customer Segment', 'Product Category'], as_index=False)
+                .agg(lines=('Profit', 'size'), sales=('Sales', 'sum'),
+                     profit=('Profit', 'sum'), lost_profit=('loss_amount', 'sum')))
+    segments = segments.loc[segments['lines'] >= 100].copy()
+    segments['profit_margin'] = segments['profit'] / segments['sales']
+    segments = (segments.sort_values('lost_profit', ascending=False, kind='stable')
+                .head(5)[['Customer Segment', 'Product Category', 'lines',
+                          'sales', 'profit', 'profit_margin', 'lost_profit']]
+                .reset_index(drop=True))
+
+    dest = base / 'submission'
+    dest.mkdir(exist_ok=True)
+    summary.to_csv(dest / 'profitability_summary.csv', index=False)
+    discounts.to_csv(dest / 'discount_summary.csv', index=False)
+    segments.to_csv(dest / 'priority_segments.csv', index=False)
+    return summary, discounts, segments
+
+
+if __name__ == '__main__':
+    a, b, c = pregunta_01()
+    print(a.to_string(index=False))
+    print(b.to_string(index=False))
+    print(c.to_string(index=False))
+
+
+
+
+
